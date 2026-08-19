@@ -81,6 +81,7 @@
     font-size: 16.5px;
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
+    overflow-wrap: break-word;
   }
   a{ color: var(--accent-ink); text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
   a:hover{ color: var(--accent); }
@@ -96,7 +97,7 @@
     text-wrap: balance;
     margin: 0;
   }
-  code, .mono{ font-family: var(--mono); }
+  code, .mono{ font-family: var(--mono); overflow-wrap: anywhere; }
   .wrap{ max-width: 1040px; margin: 0 auto; padding: 0 28px; }
   .col{ max-width: 740px; margin: 0 auto; padding: 0 28px; }
 
@@ -123,7 +124,7 @@
   }
   .band .vitals{ display: flex; gap: 22px; flex-wrap: wrap; }
   .band .vitals span b{ color: var(--band-accent); font-weight: 600; }
-  .band a{ color: var(--band-ink); }
+  .band a{ color: var(--band-ink); overflow-wrap: anywhere; }
   .band a:hover{ color: var(--band-accent); }
 
   /* signal-pulse wire */
@@ -474,7 +475,7 @@
   </div>
 
   <div class="wrap frame-block">
-    <p class="frame-label">Every frame on the wire — hover a field</p>
+    <p class="frame-label">Every frame on the wire — tap or hover a field (swipe to see the rest on small screens)</p>
     <div class="frame" id="frame" role="group" aria-label="CWP frame layout, hover or focus each field for details">
       <div class="cell w-outer" tabindex="0" data-desc="4 bytes, big-endian. The whole reason this works: read these 4 bytes and you know exactly how many more bytes make up the rest of the frame — no guessing where a TCP read ends."><span class="fname">outerLen</span><span class="fbytes">4B</span></div>
       <div class="cell w-1" tabindex="0" data-desc="1 byte, always 0xC5. A quick sanity check — if this byte is wrong, the stream is desynchronized and the connection gets torn down immediately, not silently misread."><span class="fname">magic</span><span class="fbytes">1B</span></div>
@@ -637,6 +638,7 @@
     cells.forEach(function(cell){
       cell.addEventListener('mouseenter', function(){ show(cell); });
       cell.addEventListener('focus', function(){ show(cell); });
+      cell.addEventListener('click', function(){ show(cell); });
     });
   })();
 </script>
