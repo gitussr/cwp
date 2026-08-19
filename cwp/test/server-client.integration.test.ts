@@ -17,7 +17,7 @@ async function startServer(options: CwpServerOptions = {}) {
   return { server, port: address.port };
 }
 
-/** Sends raw bytes to the server and returns the first decoded response frame — for exercising protocol-violation paths a well-behaved CwpClient would never produce. */
+/** Opens one raw socket and sends bytes, closing after the first decoded response frame — for exercising protocol-violation paths a well-behaved CwpClient would never produce. */
 function rawRoundTrip(port: number, bytes: Buffer): Promise<DecodedFrame> {
   return new Promise((resolve, reject) => {
     const socket = net.connect(port, "127.0.0.1", () => socket.write(bytes));
@@ -31,6 +31,52 @@ function rawRoundTrip(port: number, bytes: Buffer): Promise<DecodedFrame> {
     });
     socket.on("error", reject);
   });
+}
+
+/**
+ * A raw socket kept open across several send/response round trips — for
+ * tests that need to send more than one hand-crafted frame on the *same*
+ * connection (e.g. handshake, then a follow-up CMD). CwpServer deletes a
+ * session as soon as the socket that created it closes, so using a fresh
+ * socket per frame (like `rawRoundTrip`) would race that cleanup instead of
+ * testing the sequencing logic itself.
+ */
+function openRawConnection(port: number) {
+  const socket = net.connect(port, "127.0.0.1");
+  const decoder = new FrameDecoder();
+  const waiters: Array<(frame: DecodedFrame) => void> = [];
+  const backlog: DecodedFrame[] = [];
+
+  socket.on("data", (chunk) => {
+    for (const frame of decoder.push(chunk)) {
+      const waiter = waiters.shift();
+      if (waiter) waiter(frame);
+      else backlog.push(frame);
+    }
+  });
+
+  const ready = new Promise<void>((resolve, reject) => {
+    socket.once("connect", () => resolve());
+    socket.once("error", reject);
+  });
+
+  return {
+    ready,
+    send(bytes: Buffer): Promise<DecodedFrame> {
+      return new Promise((resolve) => {
+        const buffered = backlog.shift();
+        if (buffered) {
+          resolve(buffered);
+        } else {
+          waiters.push(resolve);
+        }
+        socket.write(bytes);
+      });
+    },
+    close(): void {
+      socket.end();
+    },
+  };
 }
 
 describe("CwpServer + CwpClient integration", () => {
@@ -144,18 +190,21 @@ describe("CwpServer + CwpClient integration", () => {
 
   test("a CMD with an out-of-order sequence number is rejected with BAD_SEQUENCE", async () => {
     const { server, port } = await startServer();
+    const conn = openRawConnection(port);
     try {
-      const ack = await rawRoundTrip(port, encodeFrame(MessageType.HSK, {}, ""));
+      await conn.ready;
+      const ack = await conn.send(encodeFrame(MessageType.HSK, {}, ""));
       const sessionId = ack.headers.session!;
 
-      // Skip straight to seq "5" instead of the required "1".
-      const response = await rawRoundTrip(
-        port,
+      // Skip straight to seq "5" instead of the required "1", on the same
+      // connection that opened the session.
+      const response = await conn.send(
         encodeFrame(MessageType.CMD, { session: sessionId, seq: "5", command: "HELLO" }, ""),
       );
       assert.equal(response.type, MessageType.ERR);
       assert.equal(response.headers.code, "BAD_SEQUENCE");
     } finally {
+      conn.close();
       await server.close();
     }
   });
