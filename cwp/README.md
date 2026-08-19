@@ -1,6 +1,9 @@
 # CWP — Codeworm Wire Protocol
 
 [![CI](https://github.com/gitussr/cwp/actions/workflows/ci.yml/badge.svg)](https://github.com/gitussr/cwp/actions/workflows/ci.yml)
+[![Pages](https://github.com/gitussr/cwp/actions/workflows/pages/pages-build-deployment/badge.svg)](https://github.com/gitussr/cwp/actions/workflows/pages/pages-build-deployment)
+
+Landing page live at **[gitussr.github.io/cwp](https://gitussr.github.io/cwp/)**.
 
 A small, real TCP application protocol, implemented properly: binary length-prefixed
 framing, session handshakes with replay-proof sequence numbers, CRC-32 integrity
