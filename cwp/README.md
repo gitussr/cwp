@@ -230,3 +230,7 @@ isolated first:
   purpose — what happens when a peer sends an out-of-order sequence number, an unknown
   session, or a structurally corrupt frame. That last case is the important one: it
   proves one bad connection can't take the server down for anyone else.
+
+## License
+
+[MIT](../LICENSE) — see the license file at the repo root.

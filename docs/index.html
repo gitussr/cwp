@@ -1,0 +1,643 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Codeworm Wire Protocol</title>
+<meta name="description" content="CWP is a hand-built TCP application protocol implemented properly: binary length-prefixed framing, session handshakes with replay-proof sequence numbers, CRC-32 integrity checks, and a full test suite.">
+<meta property="og:title" content="Codeworm Wire Protocol">
+<meta property="og:description" content="A hand-built TCP protocol with real framing, sessions, and integrity checks — implemented in TypeScript, tested end to end.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://gitussr.github.io/cwp/">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔌</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Condensed:wght@600;700;900&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* ============================================================
+     TOKENS
+     ============================================================ */
+  :root{
+    --paper: #F1EEE4;
+    --surface: #FFFFFF;
+    --ink: #15130D;
+    --muted: #6E6852;
+    --line: #DAD5C5;
+    --accent: #D98A12;
+    --accent-ink: #8C5A0A;
+    --code-bg: #E8E4D6;
+    --shadow: rgba(21,19,13,0.10);
+
+    /* The header/footer "nameplate" band is a deliberate fixed dark
+       component — like the printed black bar on an equipment datasheet —
+       and stays constant across both themes on purpose. */
+    --band-bg: #131109;
+    --band-ink: #F1EEE4;
+    --band-muted: #9C947C;
+    --band-line: #3A331F;
+    --band-accent: #F0A934;
+
+    --display: "Big Shoulders Condensed", "Arial Narrow", sans-serif;
+    --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --paper: #131109;
+      --surface: #1B1810;
+      --ink: #F1EEE4;
+      --muted: #A79C7E;
+      --line: #37311E;
+      --accent: #F0A934;
+      --accent-ink: #F0A934;
+      --code-bg: #1F1B10;
+      --shadow: rgba(0,0,0,0.45);
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper: #131109;
+    --surface: #1B1810;
+    --ink: #F1EEE4;
+    --muted: #A79C7E;
+    --line: #37311E;
+    --accent: #F0A934;
+    --accent-ink: #F0A934;
+    --code-bg: #1F1B10;
+    --shadow: rgba(0,0,0,0.45);
+  }
+
+  /* ============================================================
+     BASE
+     ============================================================ */
+  *{ box-sizing: border-box; }
+  html{ background: var(--paper); }
+  body{
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 16.5px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  a{ color: var(--accent-ink); text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
+  a:hover{ color: var(--accent); }
+  a:focus-visible, button:focus-visible, [tabindex]:focus-visible{
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+  h1, h2, h3{
+    font-family: var(--display);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.01em;
+    text-wrap: balance;
+    margin: 0;
+  }
+  code, .mono{ font-family: var(--mono); }
+  .wrap{ max-width: 1040px; margin: 0 auto; padding: 0 28px; }
+  .col{ max-width: 740px; margin: 0 auto; padding: 0 28px; }
+
+  /* ============================================================
+     NAMEPLATE BAND (header + footer)
+     ============================================================ */
+  .band{
+    background: var(--band-bg);
+    color: var(--band-ink);
+    border-bottom: 1px solid var(--band-line);
+  }
+  .band .wrap{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    padding-top: 14px;
+    padding-bottom: 14px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    flex-wrap: wrap;
+  }
+  .band .vitals{ display: flex; gap: 22px; flex-wrap: wrap; }
+  .band .vitals span b{ color: var(--band-accent); font-weight: 600; }
+  .band a{ color: var(--band-ink); }
+  .band a:hover{ color: var(--band-accent); }
+
+  /* signal-pulse wire */
+  .wire{
+    position: relative;
+    height: 1px;
+    background: var(--band-line);
+    overflow: visible;
+  }
+  .wire::before{
+    content: "";
+    position: absolute;
+    top: -3px;
+    left: 0;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--band-accent);
+    box-shadow: 0 0 8px 1px var(--band-accent);
+    animation: pulse-travel 5.5s linear infinite;
+  }
+  @keyframes pulse-travel{
+    0%   { left: 0%;   opacity: 0; }
+    4%   { opacity: 1; }
+    48%  { opacity: 1; }
+    52%  { left: 100%; opacity: 0; }
+    100% { left: 100%; opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce){
+    .wire::before{ animation: none; left: 2%; opacity: 1; }
+  }
+
+  /* ============================================================
+     HERO
+     ============================================================ */
+  .hero{ padding: 64px 0 12px; }
+  .eyebrow{
+    font-family: var(--mono);
+    font-size: 12.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+  .eyebrow::before{
+    content: "";
+    width: 22px;
+    height: 1px;
+    background: var(--accent);
+  }
+  h1.title{
+    font-size: clamp(52px, 9.5vw, 108px);
+    line-height: 0.92;
+    font-weight: 900;
+  }
+  h1.title .thin{ font-weight: 600; color: var(--muted); }
+  .dek{
+    font-size: 19px;
+    max-width: 640px;
+    color: var(--muted);
+    margin-top: 22px;
+  }
+  .cta-row{
+    display: flex;
+    gap: 14px;
+    margin-top: 32px;
+    flex-wrap: wrap;
+  }
+  .btn{
+    font-family: var(--mono);
+    font-size: 13.5px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    text-decoration: none;
+    padding: 12px 20px;
+    border: 1.5px solid var(--ink);
+    color: var(--ink);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: background 120ms ease, color 120ms ease;
+  }
+  .btn.primary{ background: var(--ink); color: var(--paper); }
+  .btn.primary:hover{ background: var(--accent); border-color: var(--accent); color: var(--band-bg); }
+  .btn:not(.primary):hover{ background: var(--ink); color: var(--paper); }
+
+  /* ============================================================
+     FRAME DIAGRAM
+     ============================================================ */
+  .frame-block{ padding: 56px 0 8px; }
+  .frame-label{
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 12px;
+  }
+  .frame{
+    display: flex;
+    width: 100%;
+    border: 1.5px solid var(--ink);
+    overflow-x: auto;
+  }
+  .cell{
+    font-family: var(--mono);
+    font-size: 11.5px;
+    padding: 14px 8px;
+    text-align: center;
+    border-right: 1.5px solid var(--ink);
+    background: var(--surface);
+    cursor: default;
+    flex-shrink: 0;
+    transition: background 120ms ease, color 120ms ease;
+  }
+  .cell:last-child{ border-right: none; }
+  .cell .fname{ display:block; text-transform: uppercase; letter-spacing: 0.03em; font-weight: 600; }
+  .cell .fbytes{ display:block; color: var(--muted); margin-top: 3px; }
+  .cell:hover, .cell.active, .cell:focus-visible{
+    background: var(--accent);
+    color: var(--band-bg);
+  }
+  .cell:hover .fbytes, .cell.active .fbytes, .cell:focus-visible .fbytes{ color: var(--band-bg); opacity: 0.75; }
+  .cell.w-outer{ width: 92px; }
+  .cell.w-1{ width: 52px; }
+  .cell.w-4{ width: 92px; }
+  .cell.w-var{ flex: 1 1 130px; min-width: 110px; background: var(--code-bg); }
+  .cell.w-crc{ width: 92px; }
+
+  .frame-caption{
+    font-family: var(--mono);
+    font-size: 13.5px;
+    color: var(--muted);
+    margin-top: 16px;
+    min-height: 40px;
+    border-left: 2px solid var(--accent);
+    padding-left: 14px;
+  }
+  .frame-caption b{ color: var(--ink); font-weight: 600; }
+
+  /* ============================================================
+     SECTIONS
+     ============================================================ */
+  section.spec{ padding: 64px 0; border-bottom: 1px solid var(--line); }
+  section.spec:last-of-type{ border-bottom: none; }
+  .spec-head{
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    margin-bottom: 22px;
+  }
+  .spec-num{
+    font-family: var(--display);
+    font-weight: 900;
+    font-size: 30px;
+    color: var(--accent-ink);
+    flex-shrink: 0;
+  }
+  .spec-head h2{ font-size: 26px; font-weight: 700; letter-spacing: 0.02em; }
+  .spec p{ margin: 0 0 16px; }
+  .spec p:last-child{ margin-bottom: 0; }
+  .spec strong{ font-weight: 600; }
+  .lede{ font-size: 18px; color: var(--ink); }
+
+  .bug-list{ list-style: none; margin: 20px 0 0; padding: 0; display: grid; gap: 10px; }
+  .bug-list li{
+    font-size: 15px;
+    padding-left: 22px;
+    position: relative;
+    color: var(--muted);
+  }
+  .bug-list li::before{
+    content: "×";
+    position: absolute;
+    left: 0;
+    color: var(--accent-ink);
+    font-family: var(--mono);
+    font-weight: 600;
+  }
+  .bug-list li b{ color: var(--ink); font-weight: 600; }
+
+  .fix-list{ list-style: none; margin: 20px 0 0; padding: 0; display: grid; gap: 10px; }
+  .fix-list li{
+    font-size: 15px;
+    padding-left: 22px;
+    position: relative;
+  }
+  .fix-list li::before{
+    content: "✓";
+    position: absolute;
+    left: 0;
+    color: var(--accent-ink);
+    font-family: var(--mono);
+    font-weight: 600;
+  }
+  .fix-list li b{ font-weight: 600; }
+
+  pre{
+    font-family: var(--mono);
+    font-size: 13.5px;
+    line-height: 1.65;
+    background: var(--code-bg);
+    border-left: 2px solid var(--accent);
+    padding: 16px 18px;
+    margin: 18px 0;
+    overflow-x: auto;
+    color: var(--ink);
+  }
+  pre .c{ color: var(--muted); }
+  pre .k{ color: var(--accent-ink); }
+
+  .stat-row{
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    margin-top: 24px;
+  }
+  .stat{
+    background: var(--surface);
+    padding: 18px 16px;
+  }
+  .stat .n{
+    font-family: var(--display);
+    font-weight: 900;
+    font-size: 34px;
+    line-height: 1;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .stat .l{
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin-top: 6px;
+  }
+  .badge-row{ margin-top: 26px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .ci-chip{
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    text-decoration: none;
+    color: var(--ink);
+    border: 1px solid var(--line);
+    padding: 8px 14px;
+    transition: border-color 120ms ease;
+  }
+  .ci-chip:hover{ border-color: var(--accent); color: var(--ink); }
+  .ci-chip .dot{
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #4C8B3B;
+    flex-shrink: 0;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]) .ci-chip .dot{ background: #6FBF5A; }
+  }
+  :root[data-theme="dark"] .ci-chip .dot{ background: #6FBF5A; }
+
+  .why-quote{
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: clamp(24px, 3.4vw, 34px);
+    line-height: 1.15;
+    color: var(--ink);
+    text-transform: none;
+    letter-spacing: 0;
+    text-wrap: balance;
+    margin: 0 0 20px;
+  }
+  .why-quote .acc{ color: var(--accent-ink); }
+
+  /* ============================================================
+     FOOTER BAND
+     ============================================================ */
+  footer.band .wrap{
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 18px;
+    padding-top: 34px;
+    padding-bottom: 34px;
+  }
+  footer .foot-top{
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  footer .foot-title{
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 20px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  footer .foot-links{ display: flex; gap: 20px; flex-wrap: wrap; }
+  footer .foot-note{ color: var(--band-muted); font-size: 12px; max-width: 640px; }
+
+  @media (max-width: 640px){
+    .hero{ padding-top: 46px; }
+    section.spec{ padding: 44px 0; }
+    .spec-head{ flex-direction: column; gap: 4px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="band" role="banner">
+  <div class="wrap">
+    <div class="vitals">
+      <span>PROTO <b>CWP/1</b></span>
+      <span>TRANSPORT <b>TCP</b></span>
+      <span>ENCODING <b>BINARY + JSON HDR</b></span>
+      <span>STATUS <b>STABLE</b></span>
+    </div>
+    <a href="https://github.com/gitussr/cwp" target="_blank" rel="noopener">GITHUB.COM/GITUSSR/CWP →</a>
+  </div>
+  <div class="wire" aria-hidden="true"></div>
+</div>
+
+<main>
+  <div class="wrap hero">
+    <p class="eyebrow">A hand-built TCP protocol, engineered properly</p>
+    <h1 class="title">CODEWORM<br><span class="thin">WIRE PROTOCOL</span></h1>
+    <p class="dek">
+      TCP hands you a stream of bytes with no idea where one message ends and the next
+      begins. CWP is a small application protocol built on top of that stream —
+      length-prefixed binary framing, session handshakes with replay-proof sequence
+      numbers, and CRC-32 integrity checks — implemented in TypeScript, with a test
+      suite that tries to break it before anything else does.
+    </p>
+    <div class="cta-row">
+      <a class="btn primary" href="https://github.com/gitussr/cwp" target="_blank" rel="noopener">View source →</a>
+      <a class="btn" href="https://github.com/gitussr/cwp/actions" target="_blank" rel="noopener">CI runs</a>
+      <a class="btn" href="https://github.com/gitussr/cwp/tree/master/cwp#readme" target="_blank" rel="noopener">Read the README</a>
+    </div>
+  </div>
+
+  <div class="wrap frame-block">
+    <p class="frame-label">Every frame on the wire — hover a field</p>
+    <div class="frame" id="frame" role="group" aria-label="CWP frame layout, hover or focus each field for details">
+      <div class="cell w-outer" tabindex="0" data-desc="4 bytes, big-endian. The whole reason this works: read these 4 bytes and you know exactly how many more bytes make up the rest of the frame — no guessing where a TCP read ends."><span class="fname">outerLen</span><span class="fbytes">4B</span></div>
+      <div class="cell w-1" tabindex="0" data-desc="1 byte, always 0xC5. A quick sanity check — if this byte is wrong, the stream is desynchronized and the connection gets torn down immediately, not silently misread."><span class="fname">magic</span><span class="fbytes">1B</span></div>
+      <div class="cell w-1" tabindex="0" data-desc="1 byte. Protocol version. A frame from a version this build doesn't understand is rejected outright instead of misparsed."><span class="fname">ver</span><span class="fbytes">1B</span></div>
+      <div class="cell w-1" tabindex="0" data-desc="1 byte. HSK, HSK_ACK, CMD, RES, ERR, PING, or PONG — what kind of frame this is."><span class="fname">type</span><span class="fbytes">1B</span></div>
+      <div class="cell w-4" tabindex="0" data-desc="4 bytes. Byte length of the headers block that follows."><span class="fname">headerLen</span><span class="fbytes">4B</span></div>
+      <div class="cell w-4" tabindex="0" data-desc="4 bytes. Byte length of the body that follows the headers."><span class="fname">bodyLen</span><span class="fbytes">4B</span></div>
+      <div class="cell w-var" tabindex="0" data-desc='Variable length. UTF-8 JSON, e.g. {"session":"a1f9…","seq":"3","command":"ECHO"} — session id, sequence number, command name.'><span class="fname">headers</span><span class="fbytes">N bytes</span></div>
+      <div class="cell w-var" tabindex="0" data-desc="Variable length. The raw payload — a command's argument, or its result. Can contain any bytes at all, including the delimiter characters that broke the earlier prototypes."><span class="fname">body</span><span class="fbytes">M bytes</span></div>
+      <div class="cell w-crc" tabindex="0" data-desc="4 bytes. CRC-32 of the headers + body, via Node's built-in zlib.crc32. Flip one bit in transit and the receiver catches it here, not three layers up."><span class="fname">crc32</span><span class="fbytes">4B</span></div>
+    </div>
+    <p class="frame-caption" id="frameCaption"><b>outerLen</b> — 4 bytes, big-endian. The whole reason this works: read these 4 bytes and you know exactly how many more bytes make up the rest of the frame — no guessing where a TCP read ends.</p>
+  </div>
+
+  <div class="col">
+
+    <section class="spec" id="problem">
+      <div class="spec-head">
+        <span class="spec-num">§1</span>
+        <h2>The problem</h2>
+      </div>
+      <p class="lede">A raw TCP socket doesn't know what a "message" is. It only knows bytes.</p>
+      <p>
+        Write <code>HELLO</code> then <code>WORLD</code> to a socket and the other end might see
+        <code>HELLOWORLD</code> in one read, <code>HE</code> then <code>LLOWORLD</code> in two, or
+        anything in between — TCP is free to split or coalesce your writes however it likes.
+        Every protocol built on top of TCP, from HTTP down to whatever your database driver
+        speaks, has to solve this exact problem before it can do anything else.
+      </p>
+      <p>
+        I'd already explored a handful of ways to solve it — twelve small throwaway scripts,
+        still in <code>/archive</code> on the repo — and every one of them worked, right up until it
+        didn't:
+      </p>
+      <ul class="bug-list">
+        <li><b>Delimiter framing broke on its own delimiter.</b> Splitting on <code>;</code> or <code>|</code> corrupts the moment a payload legitimately contains that character.</li>
+        <li><b>No cap on an announced length.</b> A malformed length prefix could tell the server to buffer gigabytes before rejecting anything.</li>
+        <li><b>A session timer that never got cleared.</b> <code>setInterval</code> with no matching <code>clearInterval</code> — fine in a long-running server, a leak in anything short-lived like a test.</li>
+        <li><b>A checksum that wasn't actually checked</b> against a tamper case — corruption during transit went undetected.</li>
+      </ul>
+    </section>
+
+    <section class="spec" id="design">
+      <div class="spec-head">
+        <span class="spec-num">§2</span>
+        <h2>The design</h2>
+      </div>
+      <p class="lede">CWP/1 fixes each of those, as one coherent protocol instead of four separate lessons.</p>
+      <ul class="fix-list">
+        <li><b>Binary length-prefixed framing</b> — a 4-byte outer length says exactly how many bytes make up the frame, so the body can contain any bytes at all, delimiters included.</li>
+        <li><b>A hard frame-size ceiling</b> — checked the instant the length prefix arrives, before a single byte of the body is buffered.</li>
+        <li><b>Sessions with replay-proof sequencing</b> — a handshake opens a session; every command must carry exactly <code>lastSeq + 1</code>, or it's rejected.</li>
+        <li><b>CRC-32 integrity checks</b> on every frame, via Node's own <code>zlib.crc32</code> rather than a hand-rolled checksum.</li>
+        <li><b>A promise-based client</b> that correlates responses back to requests by sequence number, so concurrent in-flight commands resolve to the right result even when pipelined.</li>
+      </ul>
+      <p style="margin-top:22px">The wire format itself lives in <code>src/protocol/</code> and doesn't import
+        <code>node:net</code> at all — parsing a frame is pure buffer-in, frame-out logic, testable in
+        microseconds without a real socket. <code>src/server/</code> and <code>src/client/</code> are the only
+        places that know what a session or a command actually means.</p>
+    </section>
+
+    <section class="spec" id="usage">
+      <div class="spec-head">
+        <span class="spec-num">§3</span>
+        <h2>Using it</h2>
+      </div>
+      <p>Runs directly from TypeScript source — no build step, no bundler:</p>
+      <pre><span class="c">$</span> git clone https://github.com/gitussr/cwp.git &amp;&amp; <span class="k">cd</span> cwp/cwp
+<span class="c">$</span> npm install          <span class="c">// two dev deps: typescript, @types/node</span>
+<span class="c">$</span> npm test             <span class="c">// node:test — 47 tests, unit + real-socket integration</span>
+<span class="c">$</span> npm run server       <span class="c">// starts a CWP server on :5000</span>
+<span class="c">$</span> npm run client       <span class="c">// runs a client against it</span></pre>
+      <p>The public API is a small, typed surface:</p>
+      <pre>import { CwpClient } from "./src/index.ts";
+
+<span class="k">const</span> client = <span class="k">new</span> CwpClient({ host: <span class="c">"127.0.0.1"</span>, port: 5000 });
+<span class="k">await</span> client.connect();
+<span class="k">await</span> client.handshake();
+
+<span class="k">await</span> client.sendCommand(<span class="c">"ECHO"</span>, <span class="c">"hello"</span>);   <span class="c">// → "hello"</span>
+<span class="k">await</span> client.sendCommand(<span class="c">"TIME"</span>);            <span class="c">// → ISO timestamp</span></pre>
+    </section>
+
+    <section class="spec" id="why">
+      <div class="spec-head">
+        <span class="spec-num">§4</span>
+        <h2>Why this project</h2>
+      </div>
+      <p class="why-quote">Most fullstack work never touches <span class="acc">the layer underneath HTTP</span> — I wanted to actually build it, not just consume it.</p>
+      <p>
+        Frameworks handle framing, backpressure, and message boundaries so well that it's easy
+        to go years without thinking about them. I picked this project specifically because it
+        forces those problems into the open: what does <code>socket.write()</code> returning
+        <code>false</code> actually mean, what happens when a chunk splits a message in half, how
+        do you stop a hostile length field from taking down a server.
+      </p>
+      <p>
+        It's also deliberately AWS-adjacent. A session store that's just an in-memory
+        <code>Map</code> works great on one instance and falls over the moment there's a second one
+        behind a load balancer — the exact reason DynamoDB and ElastiCache exist. A background
+        sweep that evicts idle sessions is a hand-rolled version of a DynamoDB TTL attribute.
+        Closing every open socket on shutdown, not just refusing new ones, is connection
+        draining — the same distinction between an ALB deregistering a target and an ECS task
+        actually finishing in-flight work before <code>SIGKILL</code>. Building the small version by
+        hand made the managed version make sense.
+      </p>
+    </section>
+
+    <section class="spec" id="status">
+      <div class="spec-head">
+        <span class="spec-num">§5</span>
+        <h2>Status</h2>
+      </div>
+      <p>Typed, tested, and green — checked on every push.</p>
+      <div class="stat-row">
+        <div class="stat"><div class="n">47/47</div><div class="l">Tests passing</div></div>
+        <div class="stat"><div class="n">0</div><div class="l">Runtime deps</div></div>
+        <div class="stat"><div class="n">5</div><div class="l">Test files, 4 layers</div></div>
+        <div class="stat"><div class="n">22.6+</div><div class="l">Node engine</div></div>
+      </div>
+      <div class="badge-row">
+        <a class="ci-chip" href="https://github.com/gitussr/cwp/actions/workflows/ci.yml" target="_blank" rel="noopener">
+          <span class="dot" aria-hidden="true"></span> CI Passing
+        </a>
+        <span class="mono" style="font-size:12.5px;color:var(--muted)">GitHub Actions · typecheck + full suite on every push</span>
+      </div>
+    </section>
+
+  </div>
+</main>
+
+<footer class="band">
+  <div class="wrap">
+    <div class="foot-top">
+      <span class="foot-title">Codeworm Wire Protocol</span>
+      <div class="foot-links">
+        <a href="https://github.com/gitussr/cwp" target="_blank" rel="noopener">Source</a>
+        <a href="https://github.com/gitussr/cwp/actions" target="_blank" rel="noopener">CI</a>
+        <a href="https://github.com/gitussr" target="_blank" rel="noopener">gitussr on GitHub</a>
+        <a href="https://github.com/gitussr/cwp/tree/master/archive" target="_blank" rel="noopener">Earlier prototypes</a>
+      </div>
+    </div>
+    <p class="foot-note">
+      Built with TypeScript, Node's native TS execution, and <code style="color:inherit">node:test</code>.
+      Wire format, architecture, and full test breakdown are documented in the repo's README.
+    </p>
+  </div>
+</footer>
+
+<script>
+  (function(){
+    var cells = document.querySelectorAll('.cell');
+    var caption = document.getElementById('frameCaption');
+    function show(cell){
+      cells.forEach(function(c){ c.classList.remove('active'); });
+      cell.classList.add('active');
+      var name = cell.querySelector('.fname').textContent;
+      caption.innerHTML = '<b>' + name + '</b> — ' + cell.getAttribute('data-desc');
+    }
+    cells.forEach(function(cell){
+      cell.addEventListener('mouseenter', function(){ show(cell); });
+      cell.addEventListener('focus', function(){ show(cell); });
+    });
+  })();
+</script>
+</body>
+</html>

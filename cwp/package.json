@@ -4,6 +4,7 @@
   "description": "Codeworm Wire Protocol (CWP/1) - a small, real TCP application protocol with framing, sessions, and integrity checks.",
   "type": "module",
   "private": true,
+  "license": "MIT",
   "engines": {
     "node": ">=22.6.0"
   },
