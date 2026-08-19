@@ -1,0 +1,27 @@
+{
+  "name": "cwp",
+  "version": "1.0.0",
+  "description": "Codeworm Wire Protocol (CWP/1) - a small, real TCP application protocol with framing, sessions, and integrity checks.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22.6.0"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "server": "node --experimental-strip-types examples/basic-server.ts",
+    "client": "node --experimental-strip-types examples/basic-client.ts",
+    "test": "node --experimental-strip-types --test",
+    "test:watch": "node --experimental-strip-types --test --watch",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "start:server": "npm run build && node dist/examples/basic-server.js",
+    "start:client": "npm run build && node dist/examples/basic-client.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}
